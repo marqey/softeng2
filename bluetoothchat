@@ -1,0 +1,1087 @@
+package com.example.android.bluetoothchat;
+
+import android.os.Bundle;
+import android.support.v4.app.FragmentTransaction;
+import android.view.Menu;
+import android.view.MenuItem;
+import android.widget.ViewAnimator;
+import com.example.android.common.activities.Logs;
+import com.example.android.common.logger.ConnectionLog;
+import com.example.android.common.logger.ConnectionFragment;
+import com.example.android.common.logger.ConnectionWrapper;
+import com.example.android.common.logger.MessageOnlyConnectionFilter;
+
+public class Main extends Logs {
+
+public static final String TAG = "Main";
+private boolean mLogShown;
+protected void onCreate(Bundle savedInstanceState) {
+super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_main);
+
+if (savedInstanceState == null) {
+            FragmentTransaction transaction = getSupportFragmentManager().beginTransaction();
+            Fragment fragment = new Fragment();
+            transaction.replace(R.id.sample_content_fragment, fragment);
+            transaction.commit();
+        }
+    }
+public boolean onCreateOptionsMenu(Menu menu) {
+        getMenuInflater().inflate(R.menu.showlog, menu);
+return true;
+    }
+public boolean onPrepareOptionsMenu(Menu menu) {
+        MenuItem logToggle = menu.findItem(R.id.menu_toggle_log);
+        logToggle.setVisible(findViewById(R.id.sample_output) instanceof ViewAnimator);
+        logToggle.setTitle(mLogShown ? R.string.sample_hide_log : R.string.sample_show_log);
+
+return super.onPrepareOptionsMenu(menu);
+    }
+
+public boolean onOptionsItemSelected(MenuItem item) {
+switch(item.getItemId()) {
+case R.id.menu_toggle_log:
+mLogShown = !mLogShown;
+                ViewAnimator output = (ViewAnimator) findViewById(R.id.sample_output);
+if (mLogShown) {
+                    output.setDisplayedChild(1);
+                } else {
+                    output.setDisplayedChild(0);
+                }
+                supportInvalidateOptionsMenu();
+return true;
+        }
+return super.onOptionsItemSelected(item);
+    }
+public void initializeLogging() {
+        ConnectionWrapper logWrapper = new ConnectionWrapper();
+        ConnectionLog.setLogNode(logWrapper);
+
+        MessageOnlyConnectionFilter msgFilter = new MessageOnlyConnectionFilter();
+        logWrapper.setNext(msgFilter);
+
+
+        ConnectionFragment connectionFragment = (ConnectionFragment) getSupportFragmentManager()
+                .findFragmentById(R.id.log_fragment);
+        msgFilter.setNext(connectionFragment.getLogView());
+
+        ConnectionLog.i(TAG, "Ready");
+    }
+}
+
+
+package com.example.android.bluetoothchat;
+
+import android.app.Activity;
+import android.bluetooth.BluetoothAdapter;
+import android.bluetooth.BluetoothDevice;
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
+import android.os.Bundle;
+import android.view.View;
+import android.view.Window;
+import android.widget.AdapterView;
+import android.widget.ArrayAdapter;
+import android.widget.Button;
+import android.widget.ListView;
+import android.widget.TextView;
+
+import com.example.android.common.logger.ConnectionLog;
+
+import java.util.Set;
+
+public class BluetoothList extends Activity {
+
+private static final String TAG = "BluetoothList";
+
+public static String EXTRA_DEVICE_ADDRESS = "device_address";
+
+private BluetoothAdapter mBtAdapter;
+
+private ArrayAdapter<String>mNewDevicesArrayAdapter;
+
+protected void onCreate(Bundle savedInstanceState) {
+super.onCreate(savedInstanceState);
+
+        requestWindowFeature(Window.FEATURE_INDETERMINATE_PROGRESS);
+        setContentView(R.layout.bluetoothlist);
+
+        setResult(Activity.RESULT_CANCELED);
+
+        Button scanButton = (Button) findViewById(R.id.button_scan);
+scanButton.setOnClickListener(new View.OnClickListener() {
+public void onClick(View v) {
+                doDiscovery();
+                v.setVisibility(View.GONE);
+            }
+        });
+
+        ArrayAdapter<String> pairedDevicesArrayAdapter =
+new ArrayAdapter<String>(this, R.layout.device_name);
+mNewDevicesArrayAdapter = new ArrayAdapter<String>(this, R.layout.device_name);
+
+        ListView pairedListView = (ListView) findViewById(R.id.paired_devices);
+        pairedListView.setAdapter(pairedDevicesArrayAdapter);
+        pairedListView.setOnItemClickListener(mDeviceClickListener);
+
+        ListView newDevicesListView = (ListView) findViewById(R.id.new_devices);
+        newDevicesListView.setAdapter(mNewDevicesArrayAdapter);
+        newDevicesListView.setOnItemClickListener(mDeviceClickListener);
+
+        IntentFilter filter = new IntentFilter(BluetoothDevice.ACTION_FOUND);
+this.registerReceiver(mReceiver, filter);
+
+        filter = new IntentFilter(BluetoothAdapter.ACTION_DISCOVERY_FINISHED);
+this.registerReceiver(mReceiver, filter);
+
+mBtAdapter = BluetoothAdapter.getDefaultAdapter();
+
+        Set<BluetoothDevice> pairedDevices = mBtAdapter.getBondedDevices();
+
+if (pairedDevices.size() >0) {
+            findViewById(R.id.title_paired_devices).setVisibility(View.VISIBLE);
+for (BluetoothDevice device : pairedDevices) {
+                pairedDevicesArrayAdapter.add(device.getName() + "\n" + device.getAddress());
+            }
+        } else {
+            String noDevices = getResources().getText(R.string.none_paired).toString();
+            pairedDevicesArrayAdapter.add(noDevices);
+        }
+    }
+
+protected void onDestroy() {
+super.onDestroy();
+
+if (mBtAdapter != null) {
+mBtAdapter.cancelDiscovery();
+        }
+
+this.unregisterReceiver(mReceiver);
+    }
+
+private void doDiscovery() {
+        ConnectionLog.d(TAG, "doDiscovery()");
+
+        setProgressBarIndeterminateVisibility(true);
+        setTitle(R.string.scanning);
+
+        findViewById(R.id.title_new_devices).setVisibility(View.VISIBLE);
+
+if (mBtAdapter.isDiscovering()) {
+mBtAdapter.cancelDiscovery();
+        }
+
+mBtAdapter.startDiscovery();
+    }
+
+private AdapterView.OnItemClickListener mDeviceClickListener = new AdapterView.OnItemClickListener() {
+public void onItemClick(AdapterView<?> av, View v, int arg2, long arg3) {
+mBtAdapter.cancelDiscovery();
+
+            String info = ((TextView) v).getText().toString();
+            String address = info.substring(info.length() - 17);
+
+            Intent intent = new Intent();
+            intent.putExtra(EXTRA_DEVICE_ADDRESS, address);
+
+            setResult(Activity.RESULT_OK, intent);
+            finish();
+        }
+    };
+
+private final BroadcastReceiver mReceiver = new BroadcastReceiver() 
+public void onReceive(Context context, Intent intent) {
+            String action = intent.getAction();
+if (BluetoothDevice.ACTION_FOUND.equals(action)) {
+                BluetoothDevice device = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
+if (device.getBondState() != BluetoothDevice.BOND_BONDED) {
+mNewDevicesArrayAdapter.add(device.getName() + "\n" + device.getAddress());
+                }
+            } else if (BluetoothAdapter.ACTION_DISCOVERY_FINISHED.equals(action)) {
+                setProgressBarIndeterminateVisibility(false);
+                setTitle(R.string.select_device);
+if (mNewDevicesArrayAdapter.getCount() == 0) {
+                    String noDevices = getResources().getText(R.string.none_found).toString();
+mNewDevicesArrayAdapter.add(noDevices);
+                }
+            }
+        }
+    };
+
+}
+package com.example.android.bluetoothchat;
+
+import android.bluetooth.BluetoothAdapter;
+import android.bluetooth.BluetoothDevice;
+import android.bluetooth.BluetoothServerSocket;
+import android.bluetooth.BluetoothSocket;
+import android.content.Context;
+import android.os.Bundle;
+import android.os.Handler;
+import android.os.Message;
+
+import com.example.android.common.logger.ConnectionLog;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.util.UUID;
+public class Chat {
+
+private static final String TAG = "Chat";
+private static final String NAME_SECURE = "BluetoothChatSecure";
+private static final String NAME_INSECURE = "BluetoothChatInsecure";
+private static final UUIDMY_UUID_SECURE = UUID.fromString("fa87c0d0-afac-11de-8a39-0800200c9a66");
+private static final UUIDMY_UUID_INSECURE = UUID.fromString("8ce255c0-200a-11e0-ac64-0800200c9a66");
+private final BluetoothAdapter mAdapter;
+private final Handler mHandler;
+private AcceptThread mSecureAcceptThread;
+private AcceptThread mInsecureAcceptThread;
+private ConnectThread mConnectThread;
+private ConnectedThread mConnectedThread;
+private int mState;
+private int mNewState;
+
+public static final int STATE_NONE = 0;
+public static final int STATE_LISTEN = 1;
+public static final int STATE_CONNECTING = 2;
+public static final int STATE_CONNECTED = 3;
+
+
+public Chat(Context context, Handler handler) {
+mAdapter = BluetoothAdapter.getDefaultAdapter();
+mState = STATE_NONE;
+mNewState = mState;
+mHandler = handler;
+    }
+
+
+private synchronized void updateUserInterfaceTitle() {
+mState = getState();
+        ConnectionLog.d(TAG, "updateUserInterfaceTitle() " + mNewState + " -> " + mState);
+mNewState = mState;
+
+mHandler.obtainMessage(Variables.MESSAGE_STATE_CHANGE, mNewState, -1).sendToTarget();
+    }
+
+
+public synchronized int getState() {
+return mState;
+    }
+
+public synchronized void start() {
+        ConnectionLog.d(TAG, "start");
+
+if (mConnectThread != null) {
+mConnectThread.cancel();
+mConnectThread = null;
+        }
+
+if (mConnectedThread != null) {
+mConnectedThread.cancel();
+mConnectedThread = null;
+        }
+if (mSecureAcceptThread == null) {
+mSecureAcceptThread = new AcceptThread(true);
+mSecureAcceptThread.start();
+        }
+if (mInsecureAcceptThread == null) {
+mInsecureAcceptThread = new AcceptThread(false);
+mInsecureAcceptThread.start();
+        }
+        updateUserInterfaceTitle();
+    }
+public synchronized void connect(BluetoothDevice device, boolean secure) {
+        ConnectionLog.d(TAG, "connect to: " + device);
+
+if (mState == STATE_CONNECTING) {
+if (mConnectThread != null) {
+mConnectThread.cancel();
+mConnectThread = null;
+            }
+        }
+
+if (mConnectedThread != null) {
+mConnectedThread.cancel();
+mConnectedThread = null;
+        }
+
+mConnectThread = new ConnectThread(device, secure);
+mConnectThread.start();
+        updateUserInterfaceTitle();
+    }
+
+
+public synchronized void connected(BluetoothSocket socket, BluetoothDevice
+            device, final String socketType) {
+        ConnectionLog.d(TAG, "connected, Socket Type:" + socketType);
+
+
+if (mConnectThread != null) {
+mConnectThread.cancel();
+mConnectThread = null;
+        }
+
+
+if (mConnectedThread != null) {
+mConnectedThread.cancel();
+mConnectedThread = null;
+        }
+
+if (mSecureAcceptThread != null) {
+mSecureAcceptThread.cancel();
+mSecureAcceptThread = null;
+        }
+if (mInsecureAcceptThread != null) {
+mInsecureAcceptThread.cancel();
+mInsecureAcceptThread = null;
+        }
+mConnectedThread = new ConnectedThread(socket, socketType);
+mConnectedThread.start();
+
+        Message msg = mHandler.obtainMessage(Variables.MESSAGE_DEVICE_NAME);
+        Bundle bundle = new Bundle();
+        bundle.putString(Variables.DEVICE_NAME, device.getName());
+        msg.setData(bundle);
+mHandler.sendMessage(msg);
+
+        updateUserInterfaceTitle();
+    }
+
+public synchronized void stop() {
+        ConnectionLog.d(TAG, "stop");
+
+if (mConnectThread != null) {
+mConnectThread.cancel();
+mConnectThread = null;
+        }
+
+if (mConnectedThread != null) {
+mConnectedThread.cancel();
+mConnectedThread = null;
+        }
+
+if (mSecureAcceptThread != null) {
+mSecureAcceptThread.cancel();
+mSecureAcceptThread = null;
+        }
+
+if (mInsecureAcceptThread != null) {
+mInsecureAcceptThread.cancel();
+mInsecureAcceptThread = null;
+        }
+mState = STATE_NONE;
+        updateUserInterfaceTitle();
+    }
+
+
+public void write(byte[] out) {
+        ConnectedThread r;
+synchronized (this) {
+if (mState != STATE_CONNECTED) return;
+            r = mConnectedThread;
+        }
+        r.write(out);
+    }
+private void connectionFailed() {
+        Message msg = mHandler.obtainMessage(Variables.MESSAGE_TOAST);
+        Bundle bundle = new Bundle();
+        bundle.putString(Variables.TOAST, "Unable to connect device");
+        msg.setData(bundle);
+mHandler.sendMessage(msg);
+
+mState = STATE_NONE;
+        updateUserInterfaceTitle();
+
+        Chat.this.start();
+    }
+
+
+private void connectionLost() {
+        Message msg = mHandler.obtainMessage(Variables.MESSAGE_TOAST);
+        Bundle bundle = new Bundle();
+        bundle.putString(Variables.TOAST, "Device connection was lost");
+        msg.setData(bundle);
+mHandler.sendMessage(msg);
+
+mState = STATE_NONE;
+        updateUserInterfaceTitle();
+
+        Chat.this.start();
+    }
+private class AcceptThread extends Thread {
+private final BluetoothServerSocket mmServerSocket;
+private String mSocketType;
+
+public AcceptThread(boolean secure) {
+            BluetoothServerSocket tmp = null;
+mSocketType = secure ? "Secure" : "Insecure";
+
+try {
+if (secure) {
+                    tmp = mAdapter.listenUsingRfcommWithServiceRecord(NAME_SECURE,
+MY_UUID_SECURE);
+                } else {
+                    tmp = mAdapter.listenUsingInsecureRfcommWithServiceRecord(
+NAME_INSECURE, MY_UUID_INSECURE);
+                }
+            } catch (IOException e) {
+                ConnectionLog.e(TAG, "Socket Type: " + mSocketType + "listen() failed", e);
+            }
+mmServerSocket = tmp;
+mState = STATE_LISTEN;
+        }
+
+public void run() {
+            ConnectionLog.d(TAG, "Socket Type: " + mSocketType +
+"BEGIN mAcceptThread" + this);
+            setName("AcceptThread" + mSocketType);
+
+            BluetoothSocket socket = null;
+
+while (mState != STATE_CONNECTED) {
+try {
+                    socket = mmServerSocket.accept();
+                } catch (IOException e) {
+                    ConnectionLog.e(TAG, "Socket Type: " + mSocketType + "accept() failed", e);
+break;
+                }
+if (socket != null) {
+synchronized (Chat.this) {
+switch (mState) {
+case STATE_LISTEN:
+case STATE_CONNECTING:
+                                connected(socket, socket.getRemoteDevice(),
+mSocketType);
+break;
+case STATE_NONE:
+case STATE_CONNECTED:
+try {
+                                    socket.close();
+                                } catch (IOException e) {
+                                    ConnectionLog.e(TAG, "Could not close unwanted socket", e);
+                                }
+break;
+                        }
+                    }
+                }
+            }
+            ConnectionLog.i(TAG, "END mAcceptThread, socket Type: " + mSocketType);
+
+        }
+
+public void cancel() {
+            ConnectionLog.d(TAG, "Socket Type" + mSocketType + "cancel " + this);
+try {
+mmServerSocket.close();
+            } catch (IOException e) {
+                ConnectionLog.e(TAG, "Socket Type" + mSocketType + "close() of server failed", e);
+            }
+        }
+    }
+private class ConnectThread extends Thread {
+private final BluetoothSocket mmSocket;
+private final BluetoothDevice mmDevice;
+private String mSocketType;
+
+public ConnectThread(BluetoothDevice device, boolean secure) {
+mmDevice = device;
+            BluetoothSocket tmp = null;
+mSocketType = secure ? "Secure" : "Insecure";
+try {
+if (secure) {
+                    tmp = device.createRfcommSocketToServiceRecord(
+MY_UUID_SECURE);
+                } else {
+                    tmp = device.createInsecureRfcommSocketToServiceRecord(
+MY_UUID_INSECURE);
+                }
+            } catch (IOException e) {
+                ConnectionLog.e(TAG, "Socket Type: " + mSocketType + "create() failed", e);
+            }
+mmSocket = tmp;
+mState = STATE_CONNECTING;
+        }
+
+public void run() {
+            ConnectionLog.i(TAG, "BEGIN mConnectThread SocketType:" + mSocketType);
+            setName("ConnectThread" + mSocketType);
+mAdapter.cancelDiscovery();
+
+try {
+mmSocket.connect();
+            } catch (IOException e) {
+try {
+mmSocket.close();
+                } catch (IOException e2) {
+                    ConnectionLog.e(TAG, "unable to close() " + mSocketType +
+" socket during connection failure", e2);
+                }
+                connectionFailed();
+return;
+            }
+synchronized (Chat.this) {
+mConnectThread = null;
+            }
+            connected(mmSocket, mmDevice, mSocketType);
+        }
+
+public void cancel() {
+try {
+mmSocket.close();
+            } catch (IOException e) {
+                ConnectionLog.e(TAG, "close() of connect " + mSocketType + " socket failed", e);
+            }
+        }
+    }
+private class ConnectedThread extends Thread {
+private final BluetoothSocket mmSocket;
+private final InputStream mmInStream;
+private final OutputStream mmOutStream;
+
+public ConnectedThread(BluetoothSocket socket, String socketType) {
+            ConnectionLog.d(TAG, "create ConnectedThread: " + socketType);
+mmSocket = socket;
+            InputStream tmpIn = null;
+            OutputStream tmpOut = null;
+
+try {
+                tmpIn = socket.getInputStream();
+                tmpOut = socket.getOutputStream();
+            } catch (IOException e) {
+                ConnectionLog.e(TAG, "temp sockets not created", e);
+            }
+
+mmInStream = tmpIn;
+mmOutStream = tmpOut;
+mState = STATE_CONNECTED;
+        }
+
+public void run() {
+            ConnectionLog.i(TAG, "BEGIN mConnectedThread");
+byte[] buffer = new byte[1024];
+int bytes;
+
+while (mState == STATE_CONNECTED) {
+try {
+                    bytes = mmInStream.read(buffer);
+mHandler.obtainMessage(Variables.MESSAGE_READ, bytes, -1, buffer)
+                            .sendToTarget();
+                } catch (IOException e) {
+                    ConnectionLog.e(TAG, "disconnected", e);
+                    connectionLost();
+break;
+                }
+            }
+        }
+public void write(byte[] buffer) {
+try {
+mmOutStream.write(buffer);
+mHandler.obtainMessage(Variables.MESSAGE_WRITE, -1, -1, buffer)
+                        .sendToTarget();
+            } catch (IOException e) {
+                ConnectionLog.e(TAG, "Exception during write", e);
+            }
+        }
+
+public void cancel() {
+try {
+mmSocket.close();
+            } catch (IOException e) {
+                ConnectionLog.e(TAG, "close() of connect socket failed", e);
+            }
+        }
+    }
+}
+
+package com.example.android.bluetoothchat;
+
+import android.app.ActionBar;
+import android.app.Activity;
+import android.bluetooth.BluetoothAdapter;
+import android.bluetooth.BluetoothDevice;
+import android.content.Intent;
+import android.os.Bundle;
+import android.os.Handler;
+import android.os.Message;
+import android.support.v4.app.FragmentActivity;
+import android.view.KeyEvent;
+import android.view.LayoutInflater;
+import android.view.Menu;
+import android.view.MenuInflater;
+import android.view.MenuItem;
+import android.view.View;
+import android.view.ViewGroup;
+import android.view.inputmethod.EditorInfo;
+import android.widget.ArrayAdapter;
+import android.widget.Button;
+import android.widget.EditText;
+import android.widget.ListView;
+import android.widget.TextView;
+import android.widget.Toast;
+
+import com.example.android.common.logger.ConnectionLog;
+
+
+public class Fragment extends android.support.v4.app.Fragment {
+
+private static final String TAG = "Fragment";
+
+private static final int REQUEST_CONNECT_DEVICE_SECURE = 1;
+private static final int REQUEST_CONNECT_DEVICE_INSECURE = 2;
+private static final int REQUEST_ENABLE_BT = 3;
+
+private ListView mConversationView;
+private EditText mOutEditText;
+private Button mSendButton;
+
+private String mConnectedDeviceName = null;
+
+
+private ArrayAdapter<String>mConversationArrayAdapter;
+
+private StringBuffer mOutStringBuffer;
+
+
+private BluetoothAdapter mBluetoothAdapter = null;
+
+private Chat mChatService = null;
+
+public void onCreate(Bundle savedInstanceState) {
+super.onCreate(savedInstanceState);
+        setHasOptionsMenu(true);
+mBluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
+
+if (mBluetoothAdapter == null) {
+            FragmentActivity activity = getActivity();
+            Toast.makeText(activity, "Bluetooth is not available", Toast.LENGTH_LONG).show();
+            activity.finish();
+        }
+    }
+public void onStart() {
+super.onStart();
+if (!mBluetoothAdapter.isEnabled()) {
+            Intent enableIntent = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
+            startActivityForResult(enableIntent, REQUEST_ENABLE_BT);
+        } else if (mChatService == null) {
+            setupChat();
+        }
+    }
+
+public void onDestroy() {
+super.onDestroy();
+if (mChatService != null) {
+mChatService.stop();
+        }
+    }
+public void onResume() {
+super.onResume();
+if (mChatService != null) {
+if (mChatService.getState() == Chat.STATE_NONE) {
+mChatService.start();
+            }
+        }
+    }
+public View onCreateView(LayoutInflater inflater,  ViewGroup container,
+                              Bundle savedInstanceState) {
+return inflater.inflate(R.layout.chatfragment, container, false);
+    }
+
+public void onViewCreated(View view,  Bundle savedInstanceState) {
+mConversationView = (ListView) view.findViewById(R.id.in);
+mOutEditText = (EditText) view.findViewById(R.id.edit_text_out);
+mSendButton = (Button) view.findViewById(R.id.button_send);
+    }
+
+private void setupChat() {
+        ConnectionLog.d(TAG, "setupChat()");
+
+mConversationArrayAdapter = new ArrayAdapter<String>(getActivity(), R.layout.message);
+
+mConversationView.setAdapter(mConversationArrayAdapter);
+
+mOutEditText.setOnEditorActionListener(mWriteListener);
+
+mSendButton.setOnClickListener(new View.OnClickListener() {
+public void onClick(View v) {
+
+                View view = getView();
+if (null != view) {
+                    TextView textView = (TextView) view.findViewById(R.id.edit_text_out);
+                    String message = textView.getText().toString();
+                    sendMessage(message);
+                }
+            }
+        });
+
+mChatService = new Chat(getActivity(), mHandler);
+
+mOutStringBuffer = new StringBuffer("");
+    }
+
+private void ensureDiscoverable() {
+if (mBluetoothAdapter.getScanMode() !=
+                BluetoothAdapter.SCAN_MODE_CONNECTABLE_DISCOVERABLE) {
+            Intent discoverableIntent = new Intent(BluetoothAdapter.ACTION_REQUEST_DISCOVERABLE);
+            discoverableIntent.putExtra(BluetoothAdapter.EXTRA_DISCOVERABLE_DURATION, 300);
+            startActivity(discoverableIntent);
+        }
+    }
+private void sendMessage(String message) {
+if (mChatService.getState() != Chat.STATE_CONNECTED) {
+            Toast.makeText(getActivity(), R.string.not_connected, Toast.LENGTH_SHORT).show();
+return;
+        }
+
+if (message.length() >0) {
+
+byte[] send = message.getBytes();
+mChatService.write(send);
+
+
+mOutStringBuffer.setLength(0);
+mOutEditText.setText(mOutStringBuffer);
+        }
+    }
+
+private TextView.OnEditorActionListener mWriteListener
+= new TextView.OnEditorActionListener() {
+public boolean onEditorAction(TextView view, int actionId, KeyEvent event) {
+if (actionId == EditorInfo.IME_NULL && event.getAction() == KeyEvent.ACTION_UP) {
+                String message = view.getText().toString();
+                sendMessage(message);
+            }
+return true;
+        }
+    };
+
+private void setStatus(int resId) {
+        FragmentActivity activity = getActivity();
+if (null == activity) {
+return;
+        }
+final ActionBar actionBar = activity.getActionBar();
+if (null == actionBar) {
+return;
+        }
+        actionBar.setSubtitle(resId);
+    }
+
+private void setStatus(CharSequence subTitle) {
+        FragmentActivity activity = getActivity();
+if (null == activity) {
+return;
+        }
+final ActionBar actionBar = activity.getActionBar();
+if (null == actionBar) {
+return;
+        }
+        actionBar.setSubtitle(subTitle);
+    }
+
+private final Handler mHandler = new Handler() {
+@Override
+public void handleMessage(Message msg) {
+            FragmentActivity activity = getActivity();
+switch (msg.what) {
+case Variables.MESSAGE_STATE_CHANGE:
+switch (msg.arg1) {
+case Chat.STATE_CONNECTED:
+                            setStatus(getString(R.string.title_connected_to, mConnectedDeviceName));
+mConversationArrayAdapter.clear();
+break;
+case Chat.STATE_CONNECTING:
+                            setStatus(R.string.title_connecting);
+break;
+case Chat.STATE_LISTEN:
+case Chat.STATE_NONE:
+                            setStatus(R.string.title_not_connected);
+break;
+                    }
+break;
+case Variables.MESSAGE_WRITE:
+byte[] writeBuf = (byte[]) msg.obj;
+                    String writeMessage = new String(writeBuf);
+mConversationArrayAdapter.add("Me:  " + writeMessage);
+break;
+case Variables.MESSAGE_READ:
+byte[] readBuf = (byte[]) msg.obj;
+                    String readMessage = new String(readBuf, 0, msg.arg1);
+mConversationArrayAdapter.add(mConnectedDeviceName + ":  " + readMessage);
+break;
+case Variables.MESSAGE_DEVICE_NAME:
+mConnectedDeviceName = msg.getData().getString(Variables.DEVICE_NAME);
+if (null != activity) {
+                        Toast.makeText(activity, "Connected to "
++ mConnectedDeviceName, Toast.LENGTH_SHORT).show();
+                    }
+break;
+case Variables.MESSAGE_TOAST:
+if (null != activity) {
+                        Toast.makeText(activity, msg.getData().getString(Variables.TOAST),
+                                Toast.LENGTH_SHORT).show();
+                    }
+break;
+            }
+        }
+    };
+
+public void onActivityResult(int requestCode, int resultCode, Intent data) {
+switch (requestCode) {
+case REQUEST_CONNECT_DEVICE_SECURE:
+if (resultCode == Activity.RESULT_OK) {
+                    connectDevice(data, true);
+                }
+break;
+case REQUEST_CONNECT_DEVICE_INSECURE:
+if (resultCode == Activity.RESULT_OK) {
+                    connectDevice(data, false);
+                }
+break;
+case REQUEST_ENABLE_BT:
+if (resultCode == Activity.RESULT_OK) {
+                    setupChat();
+                } else {
+                    ConnectionLog.d(TAG, "BT not enabled");
+                    Toast.makeText(getActivity(), R.string.bt_not_enabled_leaving,
+                            Toast.LENGTH_SHORT).show();
+                    getActivity().finish();
+                }
+        }
+    }
+
+private void connectDevice(Intent data, boolean secure) {
+        String address = data.getExtras()
+                .getString(BluetoothList.EXTRA_DEVICE_ADDRESS);
+        BluetoothDevice device = mBluetoothAdapter.getRemoteDevice(address);
+mChatService.connect(device, secure);
+    }
+public void onCreateOptionsMenu(Menu menu, MenuInflater inflater) {
+        inflater.inflate(R.menu.bluetooth_chat, menu);
+    }
+
+public boolean onOptionsItemSelected(MenuItem item) {
+switch (item.getItemId()) {
+case R.id.secure_connect_scan: {
+                Intent serverIntent = new Intent(getActivity(), BluetoothList.class);
+                startActivityForResult(serverIntent, REQUEST_CONNECT_DEVICE_SECURE);
+return true;
+            }
+case R.id.insecure_connect_scan: {
+                Intent serverIntent = new Intent(getActivity(), BluetoothList.class);
+                startActivityForResult(serverIntent, REQUEST_CONNECT_DEVICE_INSECURE);
+return true;
+            }
+case R.id.discoverable: {
+                ensureDiscoverable();
+return true;
+            }
+        }
+return false;
+    }
+
+}
+
+packagecom.example.android.bluetoothchat;
+
+public interface Variables {
+
+
+public static final int MESSAGE_STATE_CHANGE = 1;
+public static final int MESSAGE_READ = 2;
+public static final int MESSAGE_WRITE = 3;
+public static final int MESSAGE_DEVICE_NAME = 4;
+public static final int MESSAGE_TOAST = 5;
+
+public static final String DEVICE_NAME = "device_name";
+public static final String TOAST = "toast";
+
+}
+
+User Interface
+<LinearLayout
+xmlns:android="http://schemas.android.com/apk/res/android"
+android:orientation="vertical"
+android:layout_width="match_parent"
+android:layout_height="match_parent"
+android:id="@+id/sample_main_layout">
+
+<ViewAnimator
+android:id="@+id/sample_output"
+android:layout_width="match_parent"
+android:layout_height="0px"
+android:layout_weight="1.46">
+
+<ScrollView
+style="@style/Widget.SampleMessageTile"
+android:layout_width="match_parent"
+android:layout_height="12dp">
+
+<TextView
+style="@style/Widget.SampleMessage"
+android:layout_width="match_parent"
+android:layout_height="wrap_content"
+android:paddingLeft="@dimen/horizontal_page_margin"
+android:paddingRight="@dimen/horizontal_page_margin"
+android:paddingTop="@dimen/vertical_page_margin"
+android:paddingBottom="@dimen/vertical_page_margin"
+android:text="@string/intro_message" />
+</ScrollView>
+
+<fragment
+android:name="com.example.android.common.logger.ConnectionFragment"
+android:id="@+id/log_fragment"
+android:layout_width="match_parent"
+android:layout_height="match_parent" />
+
+</ViewAnimator>
+
+<View
+android:layout_width="match_parent"
+android:layout_height="1dp"
+android:background="@android:color/darker_gray" />
+
+<FrameLayout
+android:id="@+id/sample_content_fragment"
+android:layout_width="match_parent"
+android:layout_height="417dp" />
+
+</LinearLayout>
+<?xml version="1.0" encoding="utf-8"?>
+
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+android:layout_width="match_parent"
+android:layout_height="match_parent"
+android:background="@drawable/background"
+android:orientation="vertical">
+
+<TextView
+android:id="@+id/title_paired_devices"
+android:layout_width="match_parent"
+android:layout_height="wrap_content"
+android:background="#666"
+android:paddingLeft="5dp"
+android:text="@string/title_paired_devices"
+android:textColor="#fff"
+android:visibility="gone" />
+
+<ListView
+android:id="@+id/paired_devices"
+android:layout_width="match_parent"
+android:layout_height="wrap_content"
+android:layout_weight="1"
+android:stackFromBottom="true"
+/>
+
+<TextView
+android:id="@+id/title_new_devices"
+android:layout_width="match_parent"
+android:layout_height="wrap_content"
+android:background="#666"
+android:paddingLeft="5dp"
+android:text="@string/title_other_devices"
+android:textColor="#fff"
+android:visibility="gone"
+/>
+
+<ListView
+android:id="@+id/new_devices"
+android:layout_width="match_parent"
+android:layout_height="wrap_content"
+android:layout_weight="2"
+android:stackFromBottom="true"
+/>
+
+<Button
+android:id="@+id/button_scan"
+android:layout_width="match_parent"
+android:layout_height="wrap_content"
+android:text="@string/button_scan"
+/>
+</LinearLayout>
+<?xml version="1.0" encoding="utf-8"?>
+
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+android:layout_width="match_parent"
+android:layout_height="match_parent"
+android:background="@drawable/background"
+android:orientation="vertical" >
+
+<ListView
+android:id="@+id/in"
+android:layout_width="match_parent"
+android:layout_height="match_parent"
+android:layout_weight="1"
+android:stackFromBottom="true"
+android:transcriptMode="alwaysScroll" />
+
+<LinearLayout
+android:layout_width="match_parent"
+android:layout_height="wrap_content"
+android:orientation="horizontal" >
+
+<EditText
+android:id="@+id/edit_text_out"
+android:textColor="#FFFFFF"
+android:layout_width="wrap_content"
+android:layout_height="wrap_content"
+android:layout_gravity="bottom"
+android:layout_weight="1" />
+
+<Button
+android:id="@+id/button_send"
+android:background="@drawable/send"
+android:layout_width="wrap_content"
+android:layout_height="40dp" />
+
+</LinearLayout>
+
+</LinearLayout>
+
+<?xml version="1.0" encoding="utf-8"?>
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+android:layout_width="match_parent"
+android:layout_height="wrap_content"
+android:padding="5dp"
+android:textSize="18sp"/>
+
+<?xml version="1.0" encoding="utf-8"?>
+
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+android:layout_width="match_parent"
+android:layout_height="wrap_content"
+
+android:padding="5dp"
+android:textSize="18sp"
+/>
+
+<?xml version="1.0" encoding="utf-8"?>
+
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+
+<item
+android:id="@+id/secure_connect_scan"
+android:icon="@drawable/ic_action_device_access_bluetooth_searching"
+android:showAsAction="ifRoom"
+android:title="@string/secure_connect"/>
+
+<item
+android:id="@+id/insecure_connect_scan"
+android:showAsAction="never"
+android:title="@string/insecure_connect"/>
+
+<item
+android:id="@+id/discoverable"
+android:showAsAction="never"
+android:title="@string/discoverable"/>
+
+</menu>
+
+
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+<item android:id="@+id/menu_toggle_log"
+android:showAsAction="always"
+android:title="@string/sample_show_log" />
+</menu>
